@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <mach-o/loader.h>
 #include <mach-o/swap.h>
+#include <mach-o/fat.h>
 
 void dump_segments(FILE *obj_file);
 
@@ -26,7 +27,11 @@ int is_magic_64(uint32_t magic) {
 }
 
 int should_swap_bytes(uint32_t magic) {
-  return magic == MH_CIGAM || magic == MH_CIGAM_64;
+  return magic == MH_CIGAM || magic == MH_CIGAM_64 || magic == FAT_CIGAM;
+}
+
+int is_fat(uint32_t magic) {
+  return magic == FAT_MAGIC || magic == FAT_CIGAM;
 }
 
 struct _cpu_type_names {
@@ -127,9 +132,43 @@ void dump_mach_header(FILE *obj_file, int offset, int is_64, int is_swap) {
   dump_segment_commands(obj_file, load_commands_offset, is_swap, ncmds);
 }
 
+void dump_fat_header(FILE *obj_file, int is_swap) {
+  int header_size = sizeof(struct fat_header);
+  int arch_size = sizeof(struct fat_arch);
+
+  struct fat_header *header = load_bytes(obj_file, 0, header_size);
+  if (is_swap) {
+    swap_fat_header(header, 0);
+  }
+
+  int arch_offset = header_size;
+  for (int i = 0; i < header->nfat_arch; i++) {
+    struct fat_arch *arch = load_bytes(obj_file, arch_offset, arch_size);
+
+    if (is_swap) {
+      swap_fat_arch(arch, 1, 0);
+    }
+    
+    int mach_header_offset = arch->offset;
+    free(arch);
+    arch_offset += arch_size;
+
+    uint32_t magic = read_magic(obj_file, mach_header_offset);
+    int is_64 = is_magic_64(magic);
+    int is_swap_mach = should_swap_bytes(magic);
+    dump_mach_header(obj_file, mach_header_offset, is_64, is_swap_mach);
+  }
+  free(header); 
+}
+
 void dump_segments(FILE *obj_file) {
   uint32_t magic = read_magic(obj_file, 0);
   int is_64 = is_magic_64(magic);
   int is_swap = should_swap_bytes(magic);
-  dump_mach_header(obj_file, 0, is_64, is_swap);
+  int fat = is_fat(magic);
+  if (fat) {
+    dump_fat_header(obj_file, is_swap);
+  } else {
+    dump_mach_header(obj_file, 0, is_64, is_swap);
+  }
 }
