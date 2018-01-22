@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <mach-o/loader.h>
 #include <mach-o/swap.h>
 #include <mach-o/fat.h>
@@ -11,7 +12,7 @@
 # define CPU_TYPE_ARM64			(CPU_TYPE_ARM | CPU_ARCH_ABI64)
 #endif /* !CPU_TYPE_ARM64 */
 
-void dump_segments(FILE *obj_file);
+extern void dump_segments(FILE *obj_file);
 
 int main(int argc, char *argv[]) {
   const char *filename = argv[1];
@@ -19,31 +20,32 @@ int main(int argc, char *argv[]) {
   dump_segments(obj_file);
   fclose(obj_file);
 
+  (void)argc;
   return 0;
 }
 
-uint32_t read_magic(FILE *obj_file, int offset) {
+static uint32_t read_magic(FILE *obj_file, off_t offset) {
   uint32_t magic;
   fseek(obj_file, offset, SEEK_SET);
   fread(&magic, sizeof(uint32_t), 1, obj_file);
   return magic;
 }
 
-int is_magic_64(uint32_t magic) {
+static int is_magic_64(uint32_t magic) {
   return magic == MH_MAGIC_64 || magic == MH_CIGAM_64;
 }
 
-int should_swap_bytes(uint32_t magic) {
+static int should_swap_bytes(uint32_t magic) {
   return magic == MH_CIGAM || magic == MH_CIGAM_64 || magic == FAT_CIGAM;
 }
 
-int is_fat(uint32_t magic) {
+static int is_fat(uint32_t magic) {
   return magic == FAT_MAGIC || magic == FAT_CIGAM;
 }
 
 struct _cpu_type_names {
   cpu_type_t cputype;
-  const char *cpu_name;
+  const char *cpu_name; /* FIXME: -Wpadded from clang */
 };
 
 static struct _cpu_type_names cpu_type_names[] = {
@@ -64,16 +66,16 @@ static const char *cpu_type_name(cpu_type_t cpu_type) {
   return "unknown";
 }
 
-void *load_bytes(FILE *obj_file, int offset, int size) {
+static void *load_bytes(FILE *obj_file, off_t offset, size_t size) {
   void *buf = calloc(1, size);
   fseek(obj_file, offset, SEEK_SET);
   fread(buf, size, 1, obj_file);
   return buf;
 }
 
-void dump_segment_commands(FILE *obj_file, int offset, int is_swap, uint32_t ncmds) {
-  int actual_offset = offset;
-  for (int  i = 0; i < ncmds; i++) {
+static void dump_segment_commands(FILE *obj_file, off_t offset, bool is_swap, uint32_t ncmds) {
+  off_t actual_offset = offset;
+  for (uint32_t i = 0U; i < ncmds; i++) {
     struct load_command *cmd = load_bytes(obj_file, actual_offset, sizeof(struct load_command));
     if (is_swap) {
       swap_load_command(cmd, 0);
@@ -105,12 +107,12 @@ void dump_segment_commands(FILE *obj_file, int offset, int is_swap, uint32_t ncm
   }
 }
 
-void dump_mach_header(FILE *obj_file, int offset, int is_64, int is_swap) {
+static void dump_mach_header(FILE *obj_file, off_t offset, bool is_64, bool is_swap) {
   uint32_t ncmds;
-  int load_commands_offset = offset;
+  off_t load_commands_offset = offset;
 
   if (is_64) {
-    int header_size = sizeof(struct mach_header_64);
+    size_t header_size = sizeof(struct mach_header_64);
     struct mach_header_64 *header = load_bytes(obj_file, offset, header_size);
     if (is_swap) {
       swap_mach_header_64(header, 0);
@@ -122,7 +124,7 @@ void dump_mach_header(FILE *obj_file, int offset, int is_64, int is_swap) {
 
     free(header);
   } else {
-    int header_size = sizeof(struct mach_header);
+    size_t header_size = sizeof(struct mach_header);
     struct mach_header *header = load_bytes(obj_file, offset, header_size);
     if (is_swap) {
       swap_mach_header(header, 0);
@@ -139,24 +141,24 @@ void dump_mach_header(FILE *obj_file, int offset, int is_64, int is_swap) {
   dump_segment_commands(obj_file, load_commands_offset, is_swap, ncmds);
 }
 
-void dump_fat_header(FILE *obj_file, int is_swap) {
-  int header_size = sizeof(struct fat_header);
-  int arch_size = sizeof(struct fat_arch);
+static void dump_fat_header(FILE *obj_file, int is_swap) {
+  size_t header_size = sizeof(struct fat_header);
+  size_t arch_size = sizeof(struct fat_arch);
 
   struct fat_header *header = load_bytes(obj_file, 0, header_size);
   if (is_swap) {
     swap_fat_header(header, 0);
   }
 
-  int arch_offset = header_size;
-  for (int i = 0; i < header->nfat_arch; i++) {
+  off_t arch_offset = (off_t)header_size;
+  for (uint32_t i = 0U; i < header->nfat_arch; i++) {
     struct fat_arch *arch = load_bytes(obj_file, arch_offset, arch_size);
 
     if (is_swap) {
       swap_fat_arch(arch, 1, 0);
     }
 
-    int mach_header_offset = arch->offset;
+    off_t mach_header_offset = (off_t)arch->offset;
     free(arch);
     arch_offset += arch_size;
 
@@ -179,3 +181,5 @@ void dump_segments(FILE *obj_file) {
     dump_mach_header(obj_file, 0, is_64, is_swap);
   }
 }
+
+/* EOF */
