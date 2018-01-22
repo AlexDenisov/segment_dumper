@@ -1,8 +1,15 @@
+/* -*- C -*- main.c */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <mach-o/loader.h>
 #include <mach-o/swap.h>
 #include <mach-o/fat.h>
+
+/* hack until arm64 headers are worked out */
+#ifndef CPU_TYPE_ARM64
+# define CPU_TYPE_ARM64			(CPU_TYPE_ARM | CPU_ARCH_ABI64)
+#endif /* !CPU_TYPE_ARM64 */
 
 void dump_segments(FILE *obj_file);
 
@@ -148,7 +155,7 @@ void dump_fat_header(FILE *obj_file, int is_swap) {
     if (is_swap) {
       swap_fat_arch(arch, 1, 0);
     }
-    
+
     int mach_header_offset = arch->offset;
     free(arch);
     arch_offset += arch_size;
@@ -158,7 +165,7 @@ void dump_fat_header(FILE *obj_file, int is_swap) {
     int is_swap_mach = should_swap_bytes(magic);
     dump_mach_header(obj_file, mach_header_offset, is_64, is_swap_mach);
   }
-  free(header); 
+  free(header);
 }
 
 void dump_segments(FILE *obj_file) {
