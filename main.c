@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 #include <mach-o/loader.h>
 #include <mach-o/swap.h>
 #include <mach-o/fat.h>
@@ -15,8 +16,16 @@
 extern void dump_segments(FILE *obj_file);
 
 int main(int argc, char *argv[]) {
+  if (argc < 2 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
+    printf("Usage: %s <path to mach-o binary>\n", argv[0]);
+    return 1;
+  }
   const char *filename = argv[1];
   FILE *obj_file = fopen(filename, "rb");
+  if (obj_file == NULL) {
+    printf("'%s' could not be opened.\n", argv[1]);
+    return 1;
+  }
   dump_segments(obj_file);
   fclose(obj_file);
 
